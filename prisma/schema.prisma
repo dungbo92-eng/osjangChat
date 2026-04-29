@@ -1,0 +1,173 @@
+// Prisma schema for osjangChat
+// Postgres + pgvector via Supabase
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [pgvector(map: "vector")]
+}
+
+// --- Auth.js v5 + PrismaAdapter required tables ---
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+
+  accounts Account[]
+  sessions Session[]
+
+  clothingItems ClothingItem[]
+  outfits       Outfit[]
+  chatMessages  ChatMessage[]
+
+  createdAt DateTime @default(now())
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// --- Domain ---
+
+enum ItemType {
+  OWNED
+  WISH
+}
+
+enum Category {
+  TOP
+  BOTTOM
+  OUTER
+  SHOES
+  ACC
+}
+
+model ClothingItem {
+  id        String   @id @default(cuid())
+  userId    String
+  type      ItemType
+  category  Category
+
+  imageUrl  String
+  sourceUrl String?
+
+  // VLM 자동 태깅 결과
+  colors  String[]
+  style   String[]
+  season  String[]
+
+  // CLIP 임베딩 (pgvector). Phase 4 에서 Unsupported 풀 예정.
+  // embedding Unsupported("vector(512)")?
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  outfitItems OutfitItem[]
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Outfit {
+  id              String   @id @default(cuid())
+  userId          String
+  contextWeather  Json?
+  contextPlace    String?
+  contextTime     DateTime?
+  savedToLookbook Boolean  @default(false)
+
+  user  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items OutfitItem[]
+  chatMessages ChatMessage[]
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model OutfitItem {
+  outfitId String
+  itemId   String
+
+  outfit Outfit       @relation(fields: [outfitId], references: [id], onDelete: Cascade)
+  item   ClothingItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@id([outfitId, itemId])
+}
+
+enum ChatRole {
+  user
+  assistant
+  system
+}
+
+model ChatMessage {
+  id              String    @id @default(cuid())
+  userId          String
+  role            ChatRole
+  content         String    @db.Text
+  contextOutfitId String?
+
+  user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contextOutfit Outfit? @relation(fields: [contextOutfitId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+enum ExternalSource {
+  MUSINSA
+  NAVER
+}
+
+model ExternalProduct {
+  id        String         @id @default(cuid())
+  source    ExternalSource
+  url       String         @unique
+  imageUrl  String
+  title     String?
+  price     Int?
+  // embedding Unsupported("vector(512)")?
+  scrapedAt DateTime       @default(now())
+
+  @@index([source])
+}
